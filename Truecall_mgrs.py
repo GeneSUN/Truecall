@@ -186,7 +186,7 @@ if __name__ == "__main__":
 
     def convert_to_mgrs(latitude, longitude):
         try:
-            mgrs_value = m.toMGRS(latitude, longitude)
+            mgrs_value = m.toMGRS(latitude, longitude, MGRSPrecision=3)
             return mgrs_value
         except:
             return None
@@ -245,3 +245,5 @@ if __name__ == "__main__":
     base_path1 = "hdfs://njbbvmaspd11.nss.vzwnet.com:9000/user/jennifer/truecall/TrueCall_VMB/UTC_date=20231106/"
     df_trc_sampled = spark.read.option("recursiveFileLookup", "true").option("header", "true").csv(base_path1).sample(sample_perc).repartition(partitionNum)
     """
+
+    # sample_percentage = 0.1, 10 days, 173 8805 2900
