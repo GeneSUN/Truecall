@@ -1,7 +1,7 @@
 from pyspark.sql.types import (DateType, DoubleType, StringType, StructType, StructField) 
 from pyspark.sql import functions as F 
 from pyspark.sql.functions import ( 
-    abs, avg, broadcast, col, concat_ws, countDistinct, desc, exp, expr, explode, first, from_unixtime, 
+    abs, avg, broadcast, count, col, concat_ws, countDistinct, desc, exp, expr, explode, first, from_unixtime, 
     lpad, length, lit, max, min, rand, regexp_replace, round, sum, to_date, udf, when, 
 ) 
 from pyspark.sql.window import Window 
@@ -42,7 +42,10 @@ def process_csv_files(date_range, file_path_pattern,partitionNum, hdfs = 'hdfs:/
     for d in date_range: 
         file_path = file_path_pattern.format(d) 
         try:
-            df_kpis = spark.read.option("recursiveFileLookup", "true").option("header", "true").csv(file_path).sample(sample_percentage).repartition(partitionNum)
+            if sample_percentage == 1:
+                df_kpis = spark.read.option("recursiveFileLookup", "true").option("header", "true").csv(file_path).repartition(partitionNum)
+            else:
+                df_kpis = spark.read.option("recursiveFileLookup", "true").option("header", "true").csv(file_path).sample(sample_percentage).repartition(partitionNum)
             if dropduplicate:
                 df_kpis = df_kpis.dropDuplicates()
             else:
@@ -152,7 +155,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Inputs for generating Post SNA Maintenance Script Trial")
 
     partitionNum = 12000
-    sample_perc = 0.1
+    sample_perc = 1
 
 #---------------------------------------------------------------------------------
     hdfs_title = 'hdfs://njbbvmaspd11.nss.vzwnet.com:9000'
@@ -162,7 +165,7 @@ if __name__ == "__main__":
 #---------------------------------------------------------------------------------
 
     today_str = datetime.now().strftime("%Y-%m-%d")
-    d_range = get_date_window(today_str, days = 9, direction = 'backward')
+    d_range = get_date_window(today_str, days =4, direction = 'backward')
     d_range = list( map(lambda x: x.replace("-",""),d_range) )
 
     file_path_pattern = "/user/jennifer/truecall/TrueCall_VMB/UTC_date={}/"  
@@ -186,7 +189,7 @@ if __name__ == "__main__":
 
     def convert_to_mgrs(latitude, longitude):
         try:
-            mgrs_value = m.toMGRS(latitude, longitude, MGRSPrecision=3)
+            mgrs_value = m.toMGRS(latitude, longitude, MGRSPrecision =3)
             return mgrs_value
         except:
             return None
@@ -195,18 +198,31 @@ if __name__ == "__main__":
     df_trc_mgrs = df_trc_sampled.withColumn('gridid', mgrs_udf(df_trc_sampled['end_latitude'],df_trc_sampled['end_longitude']))
 #---------------------------------------------------------------------------------
     df_mgrs_feature = df_trc_mgrs.groupBy("gridid", "env_tag").agg(
-                    avg("rsrp_dbm").alias("rsrp_dbm"),
-                    avg("rsrq_db").alias("rsrq_db"),
-                    sum("rlc_pdu_dl_bytes_count").alias("sum_rlc_pdu_dl_bytes_count"),
-                    sum("rlc_pdu_ul_bytes_count").alias( "sum_rlc_pdu_ul_bytes_count"),
-                    sum("dl_mac_volume_bytes").alias( "dl_mac_volume_bytes"),\
-                    sum("ul_mac_volume_bytes").alias( "ul_mac_volume_bytes"),\
-                    avg("mac_mean_ul_kbps").alias( "mac_mean_ul_kbps"),\
-                    avg("mac_mean_dl_kbps").alias( "mac_mean_dl_kbps"),\
-                    avg("drb_mean_pdcp_dl_kbps").alias( "drb_mean_pdcp_dl_kbps"),\
-                    avg("drb_mean_pdcp_ul_kbps").alias( "drb_mean_pdcp_ul_kbps"),\
-                    sum("dl_pdcp_volume_bytes").alias( "dl_pdcp_volume_bytes"),\
-                    avg("pusch_sinr_db").alias( "pusch_sinr_db") )
+                                avg("rsrp_dbm").alias("rsrp_dbm"), 
+                                avg("rsrq_db").alias("rsrq_db"), 
+                                avg("ul_sinr_db").alias("ul_sinr_db"), 
+                                avg("qci_mean").alias("qci_mean"), 
+                                sum("rlc_pdu_dl_bytes_count").alias("sum_rlc_pdu_dl_volume_bytes"),  # we only have "rlc_pdu_dl_bytes_count" 
+                                sum("rlc_pdu_ul_bytes_count").alias("sum_rlc_pdu_ul_volume_bytes"), 
+                                avg("rlc_dl_throughput").alias("rlc_dl_throughput_kbps"), 
+                                avg("rlc_ul_throughput").alias("rlc_ul_throughput_kbps"), 
+                                sum("dl_mac_volume_bytes").alias("sum_dl_mac_volume_bytes"), 
+                                sum("ul_mac_volume_bytes").alias("sum_ul_mac_volume_bytes"), 
+                                avg("mac_mean_ul_kbps").alias("mac_mean_ul_kbps"), 
+                                avg("mac_mean_dl_kbps").alias("mac_mean_dl_kbps"), 
+                                avg("drb_mean_pdcp_dl_kbps").alias("drb_mean_pdcp_dl_kbps"), 
+                                avg("drb_mean_pdcp_ul_kbps").alias("drb_mean_pdcp_ul_kbps"), 
+                                sum("dl_pdcp_volume_bytes").alias("sum_dl_pdcp_volume_bytes"), 
+                                sum("ul_pdcp_volume_bytes").alias("sum_pdcp_volume_ul_bytes"), 
+                                sum("rlc_sdu_ul_bytes_count").alias("sum_rlc_sdu_ul_volume_kbytes"), 
+                                sum("rlc_pdu_dl__retransmitted_bytes_count").alias("sum_rlc_pdu_dl_retransmitted_volume_bytes"), 
+                                avg("pusch_sinr_db").alias("pusch_sinr_db"),
+                                countDistinct("subscriber_id").alias("unique_imsi_cnt"),
+                                count("*").alias("records_cnt")
+                                )\
+                                .dropDuplicates(subset=["gridid", "env_tag"])\
+                                .withColumn("start_week", lit( d_range[0] ))\
+                                .withColumn("end_week", lit( d_range[-1] ))
 
 #---------------------------------------------------------------------------------
     output_path = 'hdfs://njbbvmaspd11.nss.vzwnet.com:9000/user/ZheS/TrueCall/df_mgrs_feature.csv' 
