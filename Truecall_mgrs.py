@@ -165,7 +165,7 @@ if __name__ == "__main__":
 #---------------------------------------------------------------------------------
 
     today_str = datetime.now().strftime("%Y-%m-%d")
-    d_range = get_date_window(today_str, days =4, direction = 'backward')
+    d_range = get_date_window(today_str, days =9, direction = 'backward')
     d_range = list( map(lambda x: x.replace("-",""),d_range) )
 
     file_path_pattern = "/user/jennifer/truecall/TrueCall_VMB/UTC_date={}/"  
@@ -221,16 +221,17 @@ if __name__ == "__main__":
                                 count("*").alias("records_cnt")
                                 )\
                                 .dropDuplicates(subset=["gridid", "env_tag"])\
-                                .withColumn("start_week", lit( d_range[0] ))\
-                                .withColumn("end_week", lit( d_range[-1] ))
+                                .withColumn("start_week", lit( d_range[-1] ))\
+                                .withColumn("end_week", lit( d_range[0] ))
 
 #---------------------------------------------------------------------------------
-    output_path = 'hdfs://njbbvmaspd11.nss.vzwnet.com:9000/user/ZheS/TrueCall/df_mgrs_feature.csv' 
-    print('flag finished')
+    output_path = f'hdfs://njbbvmaspd11.nss.vzwnet.com:9000/user/ZheS/TrueCall/truecall_mgrs_{d_range[-1]}_{d_range[0]}.csv' 
+
     df_mgrs_feature.coalesce(1000) .write.format("csv").option("header", "true")\
                     .mode("overwrite")\
                     .option("compression", "gzip")\
                     .save(output_path)
+    print('finished writing')
 #---------------------------------------------------------------------------------
 
 
