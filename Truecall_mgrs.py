@@ -165,7 +165,7 @@ if __name__ == "__main__":
 #---------------------------------------------------------------------------------
 
     today_str = datetime.now().strftime("%Y-%m-%d")
-    d_range = get_date_window(today_str, days =9, direction = 'backward')
+    d_range = get_date_window(today_str, days =6, direction = 'backward')
     d_range = list( map(lambda x: x.replace("-",""),d_range) )
 
     file_path_pattern = "/user/jennifer/truecall/TrueCall_VMB/UTC_date={}/"  
