@@ -227,7 +227,7 @@ if __name__ == "__main__":
 #---------------------------------------------------------------------------------
     output_path = f'hdfs://njbbvmaspd11.nss.vzwnet.com:9000/user/ZheS/TrueCall/truecall_mgrs_{d_range[-1]}_{d_range[0]}.csv' 
 
-    df_mgrs_feature.coalesce(1000) .write.format("csv").option("header", "true")\
+    df_mgrs_feature.coalesce(1000).write.format("csv").option("header", "true")\
                     .mode("overwrite")\
                     .option("compression", "gzip")\
                     .save(output_path)
