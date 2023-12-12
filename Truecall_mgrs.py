@@ -224,7 +224,7 @@ if __name__ == "__main__":
                                 .dropDuplicates(subset=["gridid", "env_tag"])\
                                 .withColumn("start_week", lit( d_range[-1] ))\
                                 .withColumn("end_week", lit( d_range[0] ))
-    df_mgrs_feature.show()
+    #df_mgrs_feature.show()
 #---------------------------------------------------------------------------------
     output_path = f'hdfs://njbbepapa1.nss.vzwnet.com:9000/user/ZheS/TrueCall/truecall_mgrs_{d_range[-1]}_{d_range[0]}.csv' 
     print('flag finished')
