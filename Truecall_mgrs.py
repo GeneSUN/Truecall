@@ -156,6 +156,7 @@ if __name__ == "__main__":
 
     partitionNum = 12000
     sample_perc = 1
+    coalescNum = 200
 
 #---------------------------------------------------------------------------------
     hdfs_title = 'hdfs://njbbvmaspd11.nss.vzwnet.com:9000'
@@ -164,7 +165,7 @@ if __name__ == "__main__":
     Date_Column = ['call_end_timestamp','call_start_timestamp','current_nr_rrc_report_time']
 #---------------------------------------------------------------------------------
 
-    today_str = datetime.now().strftime("%Y-%m-%d")
+    today_str = (date.today() - timedelta(1)).strftime("%Y-%m-%d")
     d_range = get_date_window(today_str, days =6, direction = 'backward')
     d_range = list( map(lambda x: x.replace("-",""),d_range) )
 
@@ -223,15 +224,17 @@ if __name__ == "__main__":
                                 .dropDuplicates(subset=["gridid", "env_tag"])\
                                 .withColumn("start_week", lit( d_range[-1] ))\
                                 .withColumn("end_week", lit( d_range[0] ))
-
+    df_mgrs_feature.show()
 #---------------------------------------------------------------------------------
-    output_path = f'hdfs://njbbvmaspd11.nss.vzwnet.com:9000/user/ZheS/TrueCall/truecall_mgrs_{d_range[-1]}_{d_range[0]}.csv' 
-
-    df_mgrs_feature.coalesce(1000).write.format("csv").option("header", "true")\
+    output_path = f'hdfs://njbbepapa1.nss.vzwnet.com:9000/user/ZheS/TrueCall/truecall_mgrs_{d_range[-1]}_{d_range[0]}.csv' 
+    print('flag finished')
+    
+    df_mgrs_feature.repartition(coalescNum).write.format("csv").option("header", "true")\
                     .mode("overwrite")\
                     .option("compression", "gzip")\
                     .save(output_path)
     print('finished writing')
+    
 #---------------------------------------------------------------------------------
 
 
