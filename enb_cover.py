@@ -16,7 +16,7 @@ def convert_to_mgrs(latitude, longitude, MGRSPrecision =3):
     except:
         return None
 
-def process_csv_files(date_range, file_path_pattern,partitionNum, hdfs = 'hdfs://njbbvmaspd11.nss.vzwnet.com:9000',sample_percentage = 1, dropduplicate = False): 
+def process_csv_files(date_range, file_path_pattern,partitionNum,sample_percentage = 1, dropduplicate = False): 
 
     """ 
     Reads CSV files from HDFS for the given date range and file path pattern and processes them.
@@ -26,8 +26,6 @@ def process_csv_files(date_range, file_path_pattern,partitionNum, hdfs = 'hdfs:/
     Returns: 
         list: A list of processed PySpark DataFrames. 
     """ 
-
-    file_path_pattern = hdfs + file_path_pattern
     
     df_list = [] 
     for d in date_range: 
@@ -91,8 +89,9 @@ if __name__ == "__main__":
     partitionNum = 12000
     today = datetime.now().date() 
     d_range = [(today - timedelta(days=i)).strftime('%Y%m%d') for i in range(1, 3)]
-    file_path_pattern = "/user/jennifer/truecall/TrueCall_VMB/UTC_date={}/"  
-    df_list = process_csv_files(d_range, file_path_pattern, partitionNum,sample_percentage=sample_perc)
+    hdfs_pd = 'hdfs://njbbvmaspd11.nss.vzwnet.com:9000'
+    file_path_pattern = hdfs_pd + "/user/jennifer/truecall/TrueCall_VMB/UTC_date={}/"  
+    df_list = process_csv_files(d_range, file_path_pattern, partitionNum, sample_percentage=sample_perc)
     df_trc_sampled = union_df_list(df_list)
 
     mgrs_udf = udf(convert_to_mgrs, StringType() ) 
