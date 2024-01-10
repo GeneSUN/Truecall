@@ -77,10 +77,61 @@ def union_df_list(df_list):
             # Optionally, you can log the error for further investigation   
     return df_post
 
+class enb_cover():
+    global rank_num
+    rank_num = 10
+    def __init__(self, 
+            sparksession,
+            df,
+            mgrs_fun,
+            date_str
+        ) -> None:
+        self.spark = sparksession
+        self.df_trc = df
+        self.mgrs_fun = mgrs_fun
+        self.date_str = date_str
+        self.df_enb_mgrs = self.df_trc.withColumn('gridid', 
+                                                  self.mgrs_fun(self.df_trc['end_latitude'],
+                                                           self.df_trc['end_longitude']
+                                                           )
+                                                )\
+                                    .select("current_enodeb_id","gridid")
+        self.ranked_df = self.get_rank()
+        self.top_df = self.ranked_df.filter(col("rank") <= rank_num)
+        self.others_df = (self.ranked_df.filter(F.col("rank") > rank_num) 
+                        .groupBy("gridid") 
+                        .agg(F.sum("count").alias("count"), 
+                            F.sum("percentage").alias("percentage"), 
+                            F.max("total_count").alias("total_count")) 
+                        .withColumn("current_enodeb_id", F.lit("others"))
+                        .withColumn("rank", F.lit("others"))
+                        .select("gridid","current_enodeb_id","count","rank","total_count","percentage")
+                        )
+        self.union_df = self.top_df.union( self.others_df ).orderBy("rank")\
+                        .withColumnRenamed("current_enodeb_id","enb")\
+                        .withColumnRenamed("count","cnt")\
+                        .withColumnRenamed("percentage","pct")\
+                        .withColumn("date_td", F.lit(self.date_str))\
+                        .select("date_td","cnt","enb","gridid","pct")\
+
+    def get_rank(self, df_enb_mgrs = None):
+    #-----------------------------------------------------------------------
+        if df_enb_mgrs is None:
+            df_enb_mgrs = self.df_enb_mgrs
+
+        window_spec = Window.partitionBy("gridid") 
+
+        count_df = df_enb_mgrs.groupBy("gridid", "current_enodeb_id").count() 
+        ranked_df = count_df.withColumn("rank", F.row_number().over( window_spec.orderBy(col("count").desc())))\
+                            .withColumn("total_count", F.sum("count").over(window_spec))\
+                            .withColumn("percentage", F.round( col("count")/col("total_count")*100,2 ) )
+        return ranked_df
+#-----------------------------------------------------------------------
+
 if __name__ == "__main__":
     spark = SparkSession.builder\
         .appName('ZheS_TrueCall')\
-        .master("spark://njbbvmaspd11.nss.vzwnet.com:7077")\
+        .master("spark://njbbepapa1.nss.vzwnet.com:7077")\
         .config("spark.sql.adapative.enabled","true")\
         .getOrCreate()
 
@@ -88,50 +139,81 @@ if __name__ == "__main__":
     sample_perc = 1
     partitionNum = 12000
     repartion_num = 1000
-    today = datetime.now().date() 
-    d_range = [(today - timedelta(days=i)).strftime('%Y%m%d') for i in range(1, 8)]
+
+    d_range = [(datetime.now().date()  - timedelta(days=i)).strftime('%Y%m%d') for i in range(1, 3)]
     hdfs_pd = 'hdfs://njbbvmaspd11.nss.vzwnet.com:9000'
+    """
     file_path_pattern = hdfs_pd + "/user/jennifer/truecall/TrueCall_VMB/UTC_date={}/"  
     df_list = process_csv_files(d_range, file_path_pattern, partitionNum, sample_percentage=sample_perc)
     df_trc_sampled = union_df_list(df_list)
-
-    mgrs_udf = udf(convert_to_mgrs, StringType() ) 
-    df_enb_mgrs = df_trc_sampled.withColumn('gridid', mgrs_udf(df_trc_sampled['end_latitude'],df_trc_sampled['end_longitude']))\
-                                .select("current_enodeb_id","gridid")
-    #-----------------------------------------------------------------------
-    window_spec = Window.partitionBy("gridid") 
-
-    count_df = df_enb_mgrs.groupBy("gridid", "current_enodeb_id").count() 
-    ranked_df = count_df.withColumn("rank", F.row_number().over( window_spec.orderBy(col("count").desc())))\
-                        .withColumn("total_count", F.sum("count").over(window_spec))\
-                        .withColumn("percentage", F.round( col("count")/col("total_count")*100,2 ) )
-    #-----------------------------------------------------------------------
-    rank_num = 10
-    top_df = ranked_df.filter(col("rank") <= rank_num) 
-
-    others_df = (ranked_df.filter(F.col("rank") > rank_num) 
-                .groupBy("gridid") 
-                .agg(F.sum("count").alias("count"), 
-                    F.sum("percentage").alias("percentage"), 
-                    F.max("total_count").alias("total_count")) 
-                .withColumn("current_enodeb_id", F.lit("others"))
-                .withColumn("rank", F.lit("others"))
-                .select("gridid","current_enodeb_id","count","rank","total_count","percentage")
-                )
+    """
+    base_path1 = "hdfs://njbbvmaspd11.nss.vzwnet.com:9000/user/ZheS/TrueCall/20240107_sample"
+    df_trc_sampled = spark.read.parquet(base_path1)
     
-    union_df = top_df.union( others_df ).orderBy("rank")\
-                    .withColumnRenamed("current_enodeb_id","enb")\
-                    .withColumnRenamed("count","cnt")\
-                    .withColumnRenamed("percentage","pct")\
-                    .withColumn("date_td", F.lit(d_range[0]))\
-                    .select("cnt","enb","gridid","pct")
+    mgrs_udf_100 = udf(lambda lat, lon: convert_to_mgrs(lat, lon, MGRSPrecision=3), StringType()) 
+    mgrs_udf_1000 = udf(lambda lat, lon: convert_to_mgrs(lat, lon, MGRSPrecision=2), StringType())
+    mgrs_udf_10000 = udf(lambda lat, lon: convert_to_mgrs(lat, lon, MGRSPrecision=1), StringType()) 
+    #----------------------------------------------------------------------
     
-    output_path = f'hdfs://njbbepapa1.nss.vzwnet.com:9000/user/ZheS/enb_cover/truecall_mgrs_{d_range[-1]}_{d_range[0]}.csv' 
-    
-    union_df.repartition(repartion_num)\
+    def process_enb_cover(spark, df, mgrs_udf, precision, date_range): 
+        output_path = f"hdfs://njbbepapa1.nss.vzwnet.com:9000/user/ZheS/enb_cover_{precision}/truecall_mgrs_{date_range[-1]}_{date_range[0]}.csv"
+
+        ins = enb_cover( 
+            sparksession=spark, 
+            df=df, 
+            mgrs_fun=mgrs_udf, 
+            date_str=date_range[0] 
+        )
+        ins.union_df.show()
+
+        """  
+
+        ins.union_df\
             .write.format("csv").option("header", "true")\
+            .mode("overwrite")\
+            .option("compression", "gzip")\
+            .save(output_path) 
+        """
+
+    process_enb_cover(spark, df_trc_sampled, mgrs_udf_100, 100, d_range) 
+    process_enb_cover(spark, df_trc_sampled, mgrs_udf_1000, 1000, d_range) 
+    process_enb_cover(spark, df_trc_sampled, mgrs_udf_10000, 10000, d_range) 
+ 
+    """
+    ins100 = enb_cover(
+                    sparksession = spark,
+                    df = df_trc_sampled,
+                    mgrs_fun = mgrs_udf_100,
+                    date_str = d_range[0]
+                    )
+    output_path = f'hdfs://njbbepapa1.nss.vzwnet.com:9000/user/ZheS/enb_cover_100/truecall_mgrs_{d_range[-1]}_{d_range[0]}.csv' 
+    ins100.union_df.write.format("csv").option("header", "true")\
             .mode("overwrite")\
             .option("compression", "gzip")\
             .save(output_path)
 
+    ins1000 = enb_cover(
+                sparksession = spark,
+                df = df_trc_sampled,
+                mgrs_fun = mgrs_udf_1000,
+                date_str = d_range[0]
+                )
+    output_path = f'hdfs://njbbepapa1.nss.vzwnet.com:9000/user/ZheS/enb_cover_1000/truecall_mgrs_{d_range[-1]}_{d_range[0]}.csv' 
+    ins1000.union_df.write.format("csv").option("header", "true")\
+            .mode("overwrite")\
+            .option("compression", "gzip")\
+            .save(output_path)
+
+    ins10000 = enb_cover(
+                sparksession = spark,
+                df = df_trc_sampled,
+                mgrs_fun = mgrs_udf_10000,
+                date_str = d_range[0]
+                )
+    output_path = f'hdfs://njbbepapa1.nss.vzwnet.com:9000/user/ZheS/enb_cover_10000/truecall_mgrs_{d_range[-1]}_{d_range[0]}.csv' 
+    ins10000.union_df.write.format("csv").option("header", "true")\
+            .mode("overwrite")\
+            .option("compression", "gzip")\
+            .save(output_path)
+    """
     #-----------------------------------------------------------------------
