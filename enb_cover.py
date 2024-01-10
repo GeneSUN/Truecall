@@ -87,6 +87,7 @@ if __name__ == "__main__":
     #-----------------------------------------------------------------------
     sample_perc = 1
     partitionNum = 12000
+    repartion_num = 1000
     today = datetime.now().date() 
     d_range = [(today - timedelta(days=i)).strftime('%Y%m%d') for i in range(1, 8)]
     hdfs_pd = 'hdfs://njbbvmaspd11.nss.vzwnet.com:9000'
@@ -127,9 +128,10 @@ if __name__ == "__main__":
     
     output_path = f'hdfs://njbbepapa1.nss.vzwnet.com:9000/user/ZheS/enb_cover/truecall_mgrs_{d_range[-1]}_{d_range[0]}.csv' 
     
-    union_df.write.format("csv").option("header", "true")\
-                    .mode("overwrite")\
-                    .option("compression", "gzip")\
-                    .save(output_path)
+    union_df.repartition(repartion_num)\
+            .write.format("csv").option("header", "true")\
+            .mode("overwrite")\
+            .option("compression", "gzip")\
+            .save(output_path)
 
     #-----------------------------------------------------------------------
