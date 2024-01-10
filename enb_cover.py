@@ -85,10 +85,10 @@ if __name__ == "__main__":
         .getOrCreate()
 
     #-----------------------------------------------------------------------
-    sample_perc = 0.00001
+    sample_perc = 1
     partitionNum = 12000
     today = datetime.now().date() 
-    d_range = [(today - timedelta(days=i)).strftime('%Y%m%d') for i in range(1, 3)]
+    d_range = [(today - timedelta(days=i)).strftime('%Y%m%d') for i in range(1, 8)]
     hdfs_pd = 'hdfs://njbbvmaspd11.nss.vzwnet.com:9000'
     file_path_pattern = hdfs_pd + "/user/jennifer/truecall/TrueCall_VMB/UTC_date={}/"  
     df_list = process_csv_files(d_range, file_path_pattern, partitionNum, sample_percentage=sample_perc)
@@ -122,6 +122,14 @@ if __name__ == "__main__":
                     .withColumnRenamed("current_enodeb_id","enb")\
                     .withColumnRenamed("count","cnt")\
                     .withColumnRenamed("percentage","pct")\
+                    .withColumn("date_td", F.lit(d_range[0]))\
                     .select("cnt","enb","gridid","pct")
-    union_df.show()
+    
+    output_path = f'hdfs://njbbepapa1.nss.vzwnet.com:9000/user/ZheS/enb_cover/truecall_mgrs_{d_range[-1]}_{d_range[0]}.csv' 
+    
+    union_df.write.format("csv").option("header", "true")\
+                    .mode("overwrite")\
+                    .option("compression", "gzip")\
+                    .save(output_path)
+
     #-----------------------------------------------------------------------
