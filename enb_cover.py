@@ -131,7 +131,6 @@ class enb_cover():
 if __name__ == "__main__":
     spark = SparkSession.builder\
         .appName('ZheS_TrueCall')\
-        .master("spark://njbbepapa1.nss.vzwnet.com:7077")\
         .config("spark.sql.adapative.enabled","true")\
         .getOrCreate()
 
@@ -140,15 +139,14 @@ if __name__ == "__main__":
     partitionNum = 12000
     repartion_num = 1000
 
-    d_range = [(datetime.now().date()  - timedelta(days=i)).strftime('%Y%m%d') for i in range(1, 3)]
+    last_monday = date.today() - timedelta(days=(date.today().weekday() + 7) % 7 + 7);last_sunday = last_monday + timedelta(days=6) 
+    d_range = [ (last_monday + timedelta(days=x)).strftime('%Y%m%d') for x in range((last_sunday - last_monday).days + 1)] 
+
     hdfs_pd = 'hdfs://njbbvmaspd11.nss.vzwnet.com:9000'
-    """
     file_path_pattern = hdfs_pd + "/user/jennifer/truecall/TrueCall_VMB/UTC_date={}/"  
     df_list = process_csv_files(d_range, file_path_pattern, partitionNum, sample_percentage=sample_perc)
     df_trc_sampled = union_df_list(df_list)
-    """
-    base_path1 = "hdfs://njbbvmaspd11.nss.vzwnet.com:9000/user/ZheS/TrueCall/20240107_sample"
-    df_trc_sampled = spark.read.parquet(base_path1)
+
     
     mgrs_udf_100 = udf(lambda lat, lon: convert_to_mgrs(lat, lon, MGRSPrecision=3), StringType()) 
     mgrs_udf_1000 = udf(lambda lat, lon: convert_to_mgrs(lat, lon, MGRSPrecision=2), StringType())
@@ -156,7 +154,7 @@ if __name__ == "__main__":
     #----------------------------------------------------------------------
     
     def process_enb_cover(spark, df, mgrs_udf, precision, date_range): 
-        output_path = f"hdfs://njbbepapa1.nss.vzwnet.com:9000/user/ZheS/enb_cover_{precision}/truecall_mgrs_{date_range[-1]}_{date_range[0]}.csv"
+        output_path = f"hdfs://njbbepapa1.nss.vzwnet.com:9000/user/ZheS/truecall_mgrs/enb_cover_{precision}.csv"
 
         ins = enb_cover( 
             sparksession=spark, 
@@ -164,56 +162,26 @@ if __name__ == "__main__":
             mgrs_fun=mgrs_udf, 
             date_str=date_range[0] 
         )
-        ins.union_df.show()
-
-        """  
-
         ins.union_df\
             .write.format("csv").option("header", "true")\
             .mode("overwrite")\
             .option("compression", "gzip")\
             .save(output_path) 
-        """
+    try:
+        process_enb_cover(spark, df_trc_sampled, mgrs_udf_100, 100, d_range)
+    except Exception as e:
+        print(e)
 
-    process_enb_cover(spark, df_trc_sampled, mgrs_udf_100, 100, d_range) 
-    process_enb_cover(spark, df_trc_sampled, mgrs_udf_1000, 1000, d_range) 
-    process_enb_cover(spark, df_trc_sampled, mgrs_udf_10000, 10000, d_range) 
+    try:
+        process_enb_cover(spark, df_trc_sampled, mgrs_udf_1000, 1000, d_range) 
+    except Exception as e:
+        print(e)
+    
+    try:
+        process_enb_cover(spark, df_trc_sampled, mgrs_udf_10000, 10000, d_range) 
+    except Exception as e:
+        print(e)
+
+
  
-    """
-    ins100 = enb_cover(
-                    sparksession = spark,
-                    df = df_trc_sampled,
-                    mgrs_fun = mgrs_udf_100,
-                    date_str = d_range[0]
-                    )
-    output_path = f'hdfs://njbbepapa1.nss.vzwnet.com:9000/user/ZheS/enb_cover_100/truecall_mgrs_{d_range[-1]}_{d_range[0]}.csv' 
-    ins100.union_df.write.format("csv").option("header", "true")\
-            .mode("overwrite")\
-            .option("compression", "gzip")\
-            .save(output_path)
-
-    ins1000 = enb_cover(
-                sparksession = spark,
-                df = df_trc_sampled,
-                mgrs_fun = mgrs_udf_1000,
-                date_str = d_range[0]
-                )
-    output_path = f'hdfs://njbbepapa1.nss.vzwnet.com:9000/user/ZheS/enb_cover_1000/truecall_mgrs_{d_range[-1]}_{d_range[0]}.csv' 
-    ins1000.union_df.write.format("csv").option("header", "true")\
-            .mode("overwrite")\
-            .option("compression", "gzip")\
-            .save(output_path)
-
-    ins10000 = enb_cover(
-                sparksession = spark,
-                df = df_trc_sampled,
-                mgrs_fun = mgrs_udf_10000,
-                date_str = d_range[0]
-                )
-    output_path = f'hdfs://njbbepapa1.nss.vzwnet.com:9000/user/ZheS/enb_cover_10000/truecall_mgrs_{d_range[-1]}_{d_range[0]}.csv' 
-    ins10000.union_df.write.format("csv").option("header", "true")\
-            .mode("overwrite")\
-            .option("compression", "gzip")\
-            .save(output_path)
-    """
     #-----------------------------------------------------------------------
