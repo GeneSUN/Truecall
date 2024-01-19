@@ -8,7 +8,10 @@ from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
 import mgrs
 from pyspark.sql.types import (DateType, DoubleType, StringType, StructType, StructField) 
-
+import sys 
+sys.path.append('/usr/apps/vmas/script/ZS/SNAP') 
+sys.path.append('/usr/apps/vmas/script/ZS') 
+from MailSender import MailSender
 def convert_to_mgrs(latitude, longitude, MGRSPrecision =3):
     try:
         mgrs_value = mgrs.MGRS().toMGRS(latitude, longitude,MGRSPrecision =MGRSPrecision)
@@ -133,7 +136,7 @@ if __name__ == "__main__":
         .appName('ZheS_TrueCall')\
         .config("spark.sql.adapative.enabled","true")\
         .getOrCreate()
-
+    mail_sender = MailSender() 
     #-----------------------------------------------------------------------
     sample_perc = 1
     partitionNum = 12000
@@ -168,19 +171,23 @@ if __name__ == "__main__":
             .option("compression", "gzip")\
             .save(output_path) 
     try:
-        process_enb_cover(spark, df_trc_sampled, mgrs_udf_100, 100, d_range)
+        #process_enb_cover(spark, df_trc_sampled, mgrs_udf_100, 100, d_range)
+        pass
     except Exception as e:
         print(e)
+        mail_sender.send(text = e, subject="process_enb_cover_100 failed")
 
     try:
-        process_enb_cover(spark, df_trc_sampled, mgrs_udf_1000, 1000, d_range) 
+        #process_enb_cover(spark, df_trc_sampled, mgrs_udf_1000, 1000, d_range)
+        pass
     except Exception as e:
         print(e)
-    
+        mail_sender.send(text = e, subject="process_enb_cover_1000 failed")
     try:
         process_enb_cover(spark, df_trc_sampled, mgrs_udf_10000, 10000, d_range) 
     except Exception as e:
         print(e)
+        mail_sender.send(text = e, subject="process_enb_cover_10000 failed")
 
 
  

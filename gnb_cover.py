@@ -104,7 +104,7 @@ class gnb_cover():
 
 if __name__ == "__main__":
     spark = SparkSession.builder\
-        .appName('ZheS_TrueCall')\
+        .appName('ZheS_TrueCall_gnb')\
         .master("spark://njbbepapa1.nss.vzwnet.com:7077")\
         .config("spark.sql.adapative.enabled","true")\
         .getOrCreate()
@@ -119,9 +119,11 @@ if __name__ == "__main__":
 
     file_path_pattern = hdfs_pd + "/user/jennifer/truecall/TrueCall_VMB/UTC_date={}/"  
     df_list = process_csv_files(d_range, file_path_pattern,partitionNum)
-    df_trc_sampled = reduce(lambda df1, df2: df1.union(df2), df_list)\
-                            .select("serving_nr_cell_id","end_latitude","end_longitude")\
-                            .repartition(partitionNum)
+    df_trc_sampled = (
+                        reduce(lambda df1, df2: df1.union(df2), df_list)
+                            .select("serving_nr_cell_id","end_latitude","end_longitude")
+                            #.repartition(partitionNum)
+                        )
 
     mgrs_udf_100 = udf(lambda lat, lon: convert_to_mgrs(lat, lon, MGRSPrecision=3), StringType()) 
     mgrs_udf_1000 = udf(lambda lat, lon: convert_to_mgrs(lat, lon, MGRSPrecision=2), StringType())
@@ -129,6 +131,7 @@ if __name__ == "__main__":
     #----------------------------------------------------------------------
     
     def process_gnb_cover(spark, df, mgrs_udf, precision, date_range): 
+        #output_path = f"hdfs://njbbepapa1.nss.vzwnet.com:9000/user/ZheS/gnb_cover_{precision}/truecall_mgrs_{date_range[0]}_{date_range[-1]}.csv"
         output_path = f"hdfs://njbbepapa1.nss.vzwnet.com:9000/user/ZheS/truecall_mgrs/gnb_cover_{precision}.csv"
 
         ins = gnb_cover( 
@@ -143,9 +146,12 @@ if __name__ == "__main__":
             .save(output_path) 
     
     try:
+        import time
         #process_gnb_cover(spark, df_trc_sampled, mgrs_udf_100, 100, d_range) 
         #process_gnb_cover(spark, df_trc_sampled, mgrs_udf_1000, 1000, d_range) 
+        mail_sender.send(text = time.strftime("%Y-%m-%d %H:%M:%S"),subject="Start Running process_gnb_cover10000" )
         process_gnb_cover(spark, df_trc_sampled, mgrs_udf_10000, 10000, d_range)
+        mail_sender.send(text = time.strftime("%Y-%m-%d %H:%M:%S"),subject="Finish Running process_gnb_cover10000" )
     except Exception as e:
         mail_sender.send(text = e, subject="process_gnb_cover failed")
  
