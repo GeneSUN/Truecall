@@ -1,8 +1,8 @@
 from datetime import datetime, timedelta, date
-
+import time
 from pyspark.sql.window import Window
 from pyspark.sql.functions import row_number, rank, dense_rank, sum, concat_ws, col, split, concat_ws, lit ,udf,count, max,lit,avg, when,concat_ws,to_date,explode
-
+from functools import reduce
 from pyspark.sql.types import *
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
@@ -19,7 +19,7 @@ def convert_to_mgrs(latitude, longitude, MGRSPrecision =3):
     except:
         return None
 
-def process_csv_files(date_range, file_path_pattern,partitionNum,sample_percentage = 1, dropduplicate = False): 
+def process_csv_files(date_range, file_path_pattern): 
 
     """ 
     Reads CSV files from HDFS for the given date range and file path pattern and processes them.
@@ -29,56 +29,18 @@ def process_csv_files(date_range, file_path_pattern,partitionNum,sample_percenta
     Returns: 
         list: A list of processed PySpark DataFrames. 
     """ 
-    
-    df_list = [] 
-    for d in date_range: 
-        file_path = file_path_pattern.format(d) 
-        try:
-            if sample_percentage == 1:
-                df_kpis = spark.read.option("recursiveFileLookup", "true").option("header", "true").csv(file_path).repartition(partitionNum)
-            else:
-                df_kpis = spark.read.option("recursiveFileLookup", "true").option("header", "true").csv(file_path).sample(sample_percentage).repartition(partitionNum)
-            if dropduplicate:
-                df_kpis = df_kpis.dropDuplicates()
-            else:
-                pass
-            
-            df_list.append(df_kpis)
-        except:
-            print(f"data missing at {file_path}")
-    return df_list 
+    def process_csv(date):  
 
-def union_df_list(df_list):   
+        file_path = file_path_pattern.format(date)  
 
-    """   
-    Union a list of DataFrames and apply filters to remove duplicates and null values in 'ENODEB' column.   
-    Args:   
-        df_list (list): List of PySpark DataFrames to be unioned.  
-    Returns:  
-        DataFrame: Unioned DataFrame with duplicates removed and filters applied.   
+        df_kpis = spark.read.option("header", "true").csv(file_path)  
 
-    """   
-    # Initialize the result DataFrame with the first DataFrame in the list
-    try:
-        df_post = df_list[0]
-    except Exception as e:    
-        # Handle the case where data is missing for the current DataFrame (df_temp_kpi)   
-        print(f"Error processing DataFrame {0}: {e}")   
-        
-    # Iterate through the rest of the DataFrames in the list   
-    for i in range(1, len(df_list)):    
-        try:    
-            # Get the current DataFrame from the list   
-            df_temp_kpi = df_list[i]   
-            # Union the data from df_temp_kpi with df_kpis and apply filters    
-            df_post = (   
-                df_post.union(df_temp_kpi)   
-            )   
-        except Exception as e:    
-            # Handle the case where data is missing for the current DataFrame (df_temp_kpi)   
-            print(f"Error processing DataFrame {i}: {e}")   
-            # Optionally, you can log the error for further investigation   
-    return df_post
+        return df_kpis  
+
+    df_list =list(filter(None, map(process_csv, date_range))) 
+
+    return reduce(lambda df1, df2: df1.union(df2), df_list)  
+
 
 class enb_cover():
     global rank_num
@@ -133,22 +95,19 @@ class enb_cover():
 
 if __name__ == "__main__":
     spark = SparkSession.builder\
-        .appName('ZheS_TrueCall')\
+        .appName('ZheS_TrueCall_enb')\
         .config("spark.sql.adapative.enabled","true")\
         .getOrCreate()
     mail_sender = MailSender() 
     #-----------------------------------------------------------------------
-    sample_perc = 1
-    partitionNum = 12000
-    repartion_num = 1000
-
     last_monday = date.today() - timedelta(days=(date.today().weekday() + 7) % 7 + 7);last_sunday = last_monday + timedelta(days=6) 
+    last_monday = date.today() - timedelta(days=(date.today().weekday() + 7) % 7 + 5);last_sunday = last_monday + timedelta(days=6) 
+
     d_range = [ (last_monday + timedelta(days=x)).strftime('%Y%m%d') for x in range((last_sunday - last_monday).days + 1)] 
 
     hdfs_pd = 'hdfs://njbbvmaspd11.nss.vzwnet.com:9000'
     file_path_pattern = hdfs_pd + "/user/jennifer/truecall/TrueCall_VMB/UTC_date={}/"  
-    df_list = process_csv_files(d_range, file_path_pattern, partitionNum, sample_percentage=sample_perc)
-    df_trc_sampled = union_df_list(df_list)
+    df_trc_sampled = process_csv_files(d_range, file_path_pattern)
 
     
     mgrs_udf_100 = udf(lambda lat, lon: convert_to_mgrs(lat, lon, MGRSPrecision=3), StringType()) 
@@ -158,33 +117,47 @@ if __name__ == "__main__":
     
     def process_enb_cover(spark, df, mgrs_udf, precision, date_range): 
         output_path = f"hdfs://njbbepapa1.nss.vzwnet.com:9000/user/ZheS/truecall_mgrs/enb_cover_{precision}.csv"
-
         ins = enb_cover( 
             sparksession=spark, 
             df=df, 
             mgrs_fun=mgrs_udf, 
             date_str=date_range[0] 
         )
-        ins.union_df\
-            .write.format("csv").option("header", "true")\
-            .mode("overwrite")\
-            .option("compression", "gzip")\
-            .save(output_path) 
+        if precision == 100:
+            ins.union_df.repartition(100)\
+                .write.format("csv").option("header", "true")\
+                .mode("overwrite")\
+                .option("compression", "gzip")\
+                .save(output_path)
+        else:
+            ins.union_df\
+                .write.format("csv").option("header", "true")\
+                .mode("overwrite")\
+                .option("compression", "gzip")\
+                .save(output_path)
     try:
-        #process_enb_cover(spark, df_trc_sampled, mgrs_udf_100, 100, d_range)
+        mail_sender.send(text = time.strftime("%Y-%m-%d %H:%M:%S"),subject="Start Running enb_100" )
+        process_enb_cover(spark, df_trc_sampled, mgrs_udf_100, 100, d_range)        
+        mail_sender.send(text = time.strftime("%Y-%m-%d %H:%M:%S"),subject="Finish Running enb_100" )
         pass
     except Exception as e:
         print(e)
         mail_sender.send(text = e, subject="process_enb_cover_100 failed")
 
     try:
-        #process_enb_cover(spark, df_trc_sampled, mgrs_udf_1000, 1000, d_range)
+        mail_sender.send(text = time.strftime("%Y-%m-%d %H:%M:%S"),subject="Start Running enb_1000" )
+        process_enb_cover(spark, df_trc_sampled, mgrs_udf_1000, 1000, d_range)
+        mail_sender.send(text = time.strftime("%Y-%m-%d %H:%M:%S"),subject="Finish Running enb_1000" )
         pass
     except Exception as e:
         print(e)
         mail_sender.send(text = e, subject="process_enb_cover_1000 failed")
+
     try:
-        process_enb_cover(spark, df_trc_sampled, mgrs_udf_10000, 10000, d_range) 
+        mail_sender.send(text = time.strftime("%Y-%m-%d %H:%M:%S"),subject="Start Running enb_10000" )
+        process_enb_cover(spark, df_trc_sampled, mgrs_udf_10000, 10000, d_range)
+        mail_sender.send(text = time.strftime("%Y-%m-%d %H:%M:%S"),subject="Finish Running enb_10000" )
+        pass
     except Exception as e:
         print(e)
         mail_sender.send(text = e, subject="process_enb_cover_10000 failed")
