@@ -12,6 +12,7 @@ import sys
 sys.path.append('/usr/apps/vmas/script/ZS/SNAP') 
 sys.path.append('/usr/apps/vmas/script/ZS') 
 from MailSender import MailSender
+
 def convert_to_mgrs(latitude, longitude, MGRSPrecision =3):
     try:
         mgrs_value = mgrs.MGRS().toMGRS(latitude, longitude,MGRSPrecision =MGRSPrecision)
@@ -95,13 +96,13 @@ class enb_cover():
 
 if __name__ == "__main__":
     spark = SparkSession.builder\
-        .appName('ZheS_TrueCall_enb')\
-        .config("spark.sql.adapative.enabled","true")\
-        .getOrCreate()
+                        .appName('ZheS_TrueCall_enb')\
+                        .config("spark.sql.adapative.enabled","true")\
+                        .getOrCreate()
     mail_sender = MailSender() 
     #-----------------------------------------------------------------------
     last_monday = date.today() - timedelta(days=(date.today().weekday() + 7) % 7 + 7);last_sunday = last_monday + timedelta(days=6) 
-    last_monday = date.today() - timedelta(days=(date.today().weekday() + 7) % 7 + 5);last_sunday = last_monday + timedelta(days=6) 
+    #last_monday = date.today() - timedelta(days= 7);last_sunday = last_monday + timedelta(days=6) 
 
     d_range = [ (last_monday + timedelta(days=x)).strftime('%Y%m%d') for x in range((last_sunday - last_monday).days + 1)] 
 
@@ -123,18 +124,12 @@ if __name__ == "__main__":
             mgrs_fun=mgrs_udf, 
             date_str=date_range[0] 
         )
-        if precision == 100:
-            ins.union_df.repartition(100)\
-                .write.format("csv").option("header", "true")\
-                .mode("overwrite")\
-                .option("compression", "gzip")\
-                .save(output_path)
-        else:
-            ins.union_df\
-                .write.format("csv").option("header", "true")\
-                .mode("overwrite")\
-                .option("compression", "gzip")\
-                .save(output_path)
+        ins.union_df.repartition(20000/precision)\
+            .write.format("csv").option("header", "true")\
+            .mode("overwrite")\
+            .option("compression", "gzip")\
+            .save(output_path)
+
     try:
         mail_sender.send(text = time.strftime("%Y-%m-%d %H:%M:%S"),subject="Start Running enb_100" )
         process_enb_cover(spark, df_trc_sampled, mgrs_udf_100, 100, d_range)        
@@ -145,7 +140,6 @@ if __name__ == "__main__":
         mail_sender.send(text = e, subject="process_enb_cover_100 failed")
 
     try:
-        mail_sender.send(text = time.strftime("%Y-%m-%d %H:%M:%S"),subject="Start Running enb_1000" )
         process_enb_cover(spark, df_trc_sampled, mgrs_udf_1000, 1000, d_range)
         mail_sender.send(text = time.strftime("%Y-%m-%d %H:%M:%S"),subject="Finish Running enb_1000" )
         pass
@@ -154,7 +148,6 @@ if __name__ == "__main__":
         mail_sender.send(text = e, subject="process_enb_cover_1000 failed")
 
     try:
-        mail_sender.send(text = time.strftime("%Y-%m-%d %H:%M:%S"),subject="Start Running enb_10000" )
         process_enb_cover(spark, df_trc_sampled, mgrs_udf_10000, 10000, d_range)
         mail_sender.send(text = time.strftime("%Y-%m-%d %H:%M:%S"),subject="Finish Running enb_10000" )
         pass
