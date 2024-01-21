@@ -9,7 +9,6 @@ from pyspark.sql import functions as F
 import mgrs
 from pyspark.sql.types import (DateType, DoubleType, StringType, StructType, StructField) 
 import sys 
-sys.path.append('/usr/apps/vmas/script/ZS/SNAP') 
 sys.path.append('/usr/apps/vmas/script/ZS') 
 from MailSender import MailSender
 
@@ -20,28 +19,20 @@ def convert_to_mgrs(latitude, longitude, MGRSPrecision =3):
     except:
         return None
 
-def process_csv_files(date_range, file_path_pattern): 
+def read_csv_file_by_date(date, file_path_pattern): 
 
-    """ 
-    Reads CSV files from HDFS for the given date range and file path pattern and processes them.
-    Args: 
-        date_range (list): List of date strings in the format 'YYYY-MM-DD'. 
-        file_path_pattern (str): File path pattern with a placeholder for the date, e.g., "/user/.../{}.csv"
-    Returns: 
-        list: A list of processed PySpark DataFrames. 
-    """ 
-    def process_csv(date):  
+    file_path = file_path_pattern.format(date) 
+    df = spark.read.option("header", "true").csv(file_path) 
 
-        file_path = file_path_pattern.format(date)  
+    return df 
 
-        df_kpis = spark.read.option("header", "true").csv(file_path)  
+def process_csv_files_for_date_range(date_range, file_path_pattern): 
 
-        return df_kpis  
+    df_list = list(map(lambda date: read_csv_file_by_date(date, file_path_pattern), date_range)) 
+    df_list = list(filter(None, df_list)) 
+    result_df = reduce(lambda df1, df2: df1.union(df2), df_list) 
 
-    df_list =list(filter(None, map(process_csv, date_range))) 
-
-    return reduce(lambda df1, df2: df1.union(df2), df_list)  
-
+    return result_df 
 
 class enb_cover():
     global rank_num
@@ -101,15 +92,14 @@ if __name__ == "__main__":
                         .getOrCreate()
     mail_sender = MailSender() 
     #-----------------------------------------------------------------------
-    last_monday = date.today() - timedelta(days=(date.today().weekday() + 7) % 7 + 7);last_sunday = last_monday + timedelta(days=6) 
-    #last_monday = date.today() - timedelta(days= 7);last_sunday = last_monday + timedelta(days=6) 
+    #last_monday = date.today() - timedelta(days=(date.today().weekday() + 7) % 7 + 7);last_sunday = last_monday + timedelta(days=6) 
+    last_monday = date.today() - timedelta(days= 7); last_sunday = last_monday + timedelta(days=6) 
 
     d_range = [ (last_monday + timedelta(days=x)).strftime('%Y%m%d') for x in range((last_sunday - last_monday).days + 1)] 
 
     hdfs_pd = 'hdfs://njbbvmaspd11.nss.vzwnet.com:9000'
     file_path_pattern = hdfs_pd + "/user/jennifer/truecall/TrueCall_VMB/UTC_date={}/"  
-    df_trc_sampled = process_csv_files(d_range, file_path_pattern)
-
+    df_trc_sampled = process_csv_files_for_date_range(d_range, file_path_pattern)
     
     mgrs_udf_100 = udf(lambda lat, lon: convert_to_mgrs(lat, lon, MGRSPrecision=3), StringType()) 
     mgrs_udf_1000 = udf(lambda lat, lon: convert_to_mgrs(lat, lon, MGRSPrecision=2), StringType())
@@ -124,36 +114,37 @@ if __name__ == "__main__":
             mgrs_fun=mgrs_udf, 
             date_str=date_range[0] 
         )
-        ins.union_df.repartition(20000/precision)\
+        ins.union_df.repartition(int(20000/precision))\
             .write.format("csv").option("header", "true")\
             .mode("overwrite")\
             .option("compression", "gzip")\
             .save(output_path)
+        return
 
+    mail_sender.send(text = time.strftime("%Y-%m-%d %H:%M:%S"),subject="Start Running enb_100", send_from ="Truecall_enb@verizon.com" )
     try:
-        mail_sender.send(text = time.strftime("%Y-%m-%d %H:%M:%S"),subject="Start Running enb_100" )
         process_enb_cover(spark, df_trc_sampled, mgrs_udf_100, 100, d_range)        
-        mail_sender.send(text = time.strftime("%Y-%m-%d %H:%M:%S"),subject="Finish Running enb_100" )
+        mail_sender.send(text = time.strftime("%Y-%m-%d %H:%M:%S"),subject="Finish Running enb_100" , send_from ="Truecall_enb@verizon.com")
         pass
     except Exception as e:
         print(e)
-        mail_sender.send(text = e, subject="process_enb_cover_100 failed")
+        mail_sender.send(text = e, subject="process_enb_cover_100 failed", send_from ="Truecall_enb@verizon.com")
 
     try:
         process_enb_cover(spark, df_trc_sampled, mgrs_udf_1000, 1000, d_range)
-        mail_sender.send(text = time.strftime("%Y-%m-%d %H:%M:%S"),subject="Finish Running enb_1000" )
+        mail_sender.send(text = time.strftime("%Y-%m-%d %H:%M:%S"),subject="Finish Running enb_1000", send_from ="Truecall_enb@verizon.com" )
         pass
     except Exception as e:
         print(e)
-        mail_sender.send(text = e, subject="process_enb_cover_1000 failed")
+        mail_sender.send(text = e, subject="process_enb_cover_1000 failed", send_from ="Truecall_enb@verizon.com")
 
     try:
         process_enb_cover(spark, df_trc_sampled, mgrs_udf_10000, 10000, d_range)
-        mail_sender.send(text = time.strftime("%Y-%m-%d %H:%M:%S"),subject="Finish Running enb_10000" )
+        mail_sender.send(text = time.strftime("%Y-%m-%d %H:%M:%S"),subject="Finish Running enb_10000", send_from ="Truecall_enb@verizon.com" )
         pass
     except Exception as e:
         print(e)
-        mail_sender.send(text = e, subject="process_enb_cover_10000 failed")
+        mail_sender.send(text = e, subject="process_enb_cover_10000 failed", send_from ="Truecall_enb@verizon.com")
 
 
  
