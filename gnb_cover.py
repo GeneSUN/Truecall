@@ -2,14 +2,13 @@ from datetime import datetime, timedelta, date
 from functools import reduce
 from pyspark.sql.window import Window
 from pyspark.sql.functions import row_number, rank, dense_rank, sum, concat_ws, col, split, concat_ws, lit ,udf,count, max,lit,avg, when,concat_ws,to_date,explode
-
+import time
 from pyspark.sql.types import *
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
 import mgrs
 from pyspark.sql.types import (DateType, DoubleType, StringType, StructType, StructField) 
 import sys 
-sys.path.append('/usr/apps/vmas/script/ZS/SNAP') 
 sys.path.append('/usr/apps/vmas/script/ZS') 
 from MailSender import MailSender
 def convert_to_mgrs(latitude, longitude, MGRSPrecision =3):
@@ -19,37 +18,20 @@ def convert_to_mgrs(latitude, longitude, MGRSPrecision =3):
     except:
         return None
 
-def process_csv_files(date_range, file_path_pattern,partitionNum,sample_percentage = 1, dropduplicate = False): 
+def read_csv_file_by_date(date, file_path_pattern): 
 
-    """ 
-    Reads CSV files from HDFS for the given date range and file path pattern and processes them.
-    Args: 
-        date_range (list): List of date strings in the format 'YYYY-MM-DD'. 
-        file_path_pattern (str): File path pattern with a placeholder for the date, e.g., "/user/.../{}.csv"
-    Returns: 
-        list: A list of processed PySpark DataFrames. 
-    """ 
-    
-    df_list = [] 
-    for d in date_range: 
-        file_path = file_path_pattern.format(d) 
-        try:
-            if sample_percentage == 1:
-                df_kpis = (spark.read.option("recursiveFileLookup", "true").option("header", "true").csv(file_path)
-                                #.filter(col("serving_nr_cell_id").isNotNull())
-                                #.repartition(partitionNum)
-                            )
-            else:
-                df_kpis = spark.read.option("recursiveFileLookup", "true").option("header", "true").csv(file_path).sample(sample_percentage)
-            if dropduplicate:
-                df_kpis = df_kpis.dropDuplicates()
-            else:
-                pass
-            
-            df_list.append(df_kpis)
-        except:
-            print(f"data missing at {file_path}")
-    return df_list 
+    file_path = file_path_pattern.format(date) 
+    df = spark.read.option("header", "true").csv(file_path) 
+
+    return df 
+
+def process_csv_files_for_date_range(date_range, file_path_pattern): 
+
+    df_list = list(map(lambda date: read_csv_file_by_date(date, file_path_pattern), date_range)) 
+    df_list = list(filter(None, df_list)) 
+    result_df = reduce(lambda df1, df2: df1.union(df2), df_list) 
+
+    return result_df 
 
 class gnb_cover():
     global rank_num
@@ -104,26 +86,21 @@ class gnb_cover():
 
 if __name__ == "__main__":
     spark = SparkSession.builder\
-        .appName('ZheS_TrueCall_gnb')\
-        .master("spark://njbbepapa1.nss.vzwnet.com:7077")\
-        .config("spark.sql.adapative.enabled","true")\
-        .getOrCreate()
+                        .appName('ZheS_TrueCall_gnb')\
+                        .master("spark://njbbepapa1.nss.vzwnet.com:7077")\
+                        .config("spark.sql.adapative.enabled","true")\
+                        .getOrCreate()
     mail_sender = MailSender() 
     hdfs_pd = 'hdfs://njbbvmaspd11.nss.vzwnet.com:9000'
     #-----------------------------------------------------------------------
-    partitionNum = 10000; repartion_num = 1000
+    repartion_num = 1000
 
-    #last_monday = datetime(2023, 12, 17); last_sunday = last_monday + timedelta(6)
-    last_monday = date.today() - timedelta(days=(date.today().weekday() + 7) % 7 + 7);last_sunday = last_monday + timedelta(days=6) 
-    d_range = [ (last_monday + timedelta(days=x)).strftime('%Y%m%d') for x in range((last_sunday - last_monday).days + 1)] 
-
+    last_saturday = date.today() - timedelta(days=(date.today().weekday() + 7) % 7 + 2);last_friday = last_saturday + timedelta(days=6) 
+    #last_saturday = date.today() - timedelta(days= 7); last_friday = last_saturday + timedelta(days=6) 
+    d_range = [ (last_saturday + timedelta(days=x)).strftime('%Y%m%d') for x in range((last_friday - last_saturday).days + 1)]
+    
     file_path_pattern = hdfs_pd + "/user/jennifer/truecall/TrueCall_VMB/UTC_date={}/"  
-    df_list = process_csv_files(d_range, file_path_pattern,partitionNum)
-    df_trc_sampled = (
-                        reduce(lambda df1, df2: df1.union(df2), df_list)
-                            .select("serving_nr_cell_id","end_latitude","end_longitude")
-                            #.repartition(partitionNum)
-                        )
+    df_trc_sampled = process_csv_files_for_date_range(d_range, file_path_pattern)
 
     mgrs_udf_100 = udf(lambda lat, lon: convert_to_mgrs(lat, lon, MGRSPrecision=3), StringType()) 
     mgrs_udf_1000 = udf(lambda lat, lon: convert_to_mgrs(lat, lon, MGRSPrecision=2), StringType())
@@ -131,7 +108,6 @@ if __name__ == "__main__":
     #----------------------------------------------------------------------
     
     def process_gnb_cover(spark, df, mgrs_udf, precision, date_range): 
-        #output_path = f"hdfs://njbbepapa1.nss.vzwnet.com:9000/user/ZheS/gnb_cover_{precision}/truecall_mgrs_{date_range[0]}_{date_range[-1]}.csv"
         output_path = f"hdfs://njbbepapa1.nss.vzwnet.com:9000/user/ZheS/truecall_mgrs/gnb_cover_{precision}.csv"
 
         ins = gnb_cover( 
@@ -146,13 +122,14 @@ if __name__ == "__main__":
             .save(output_path) 
     
     try:
-        import time
-        #process_gnb_cover(spark, df_trc_sampled, mgrs_udf_100, 100, d_range) 
-        #process_gnb_cover(spark, df_trc_sampled, mgrs_udf_1000, 1000, d_range) 
-        mail_sender.send(text = time.strftime("%Y-%m-%d %H:%M:%S"),subject="Start Running process_gnb_cover10000" )
+        mail_sender.send(text = time.strftime("%Y-%m-%d %H:%M:%S"),subject="Start Running process_gnb_cover100" , send_from ="Truecall_gnb@verizon.com" )
+        process_gnb_cover(spark, df_trc_sampled, mgrs_udf_100, 100, d_range) 
+        mail_sender.send(text = time.strftime("%Y-%m-%d %H:%M:%S"),subject="Start Running process_gnb_cover1000" , send_from ="Truecall_gnb@verizon.com" )
+        process_gnb_cover(spark, df_trc_sampled, mgrs_udf_1000, 1000, d_range)
+        mail_sender.send(text = time.strftime("%Y-%m-%d %H:%M:%S"),subject="Start Running process_gnb_cover10000", send_from ="Truecall_gnb@verizon.com"  )
         process_gnb_cover(spark, df_trc_sampled, mgrs_udf_10000, 10000, d_range)
-        mail_sender.send(text = time.strftime("%Y-%m-%d %H:%M:%S"),subject="Finish Running process_gnb_cover10000" )
+        mail_sender.send(text = time.strftime("%Y-%m-%d %H:%M:%S"),subject="Finish Running process_gnb_cover", send_from ="Truecall_gnb@verizon.com"  )
     except Exception as e:
-        mail_sender.send(text = e, subject="process_gnb_cover failed")
+        mail_sender.send(text = e, subject="process_gnb_cover failed", send_from ="Truecall_gnb@verizon.com" )
  
     #-----------------------------------------------------------------------
