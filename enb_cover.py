@@ -92,11 +92,10 @@ if __name__ == "__main__":
                         .getOrCreate()
     mail_sender = MailSender() 
     #-----------------------------------------------------------------------
-    #last_monday = date.today() - timedelta(days=(date.today().weekday() + 7) % 7 + 7);last_sunday = last_monday + timedelta(days=6) 
-    last_monday = date.today() - timedelta(days= 7); last_sunday = last_monday + timedelta(days=6) 
-
-    d_range = [ (last_monday + timedelta(days=x)).strftime('%Y%m%d') for x in range((last_sunday - last_monday).days + 1)] 
-
+    last_saturday = date.today() - timedelta(days=(date.today().weekday() + 7) % 7 + 2);last_friday = last_saturday + timedelta(days=6) 
+    #last_saturday = date.today() - timedelta(days= 7); last_friday = last_saturday + timedelta(days=6) 
+    d_range = [ (last_saturday + timedelta(days=x)).strftime('%Y%m%d') for x in range((last_friday - last_saturday).days + 1)]
+    
     hdfs_pd = 'hdfs://njbbvmaspd11.nss.vzwnet.com:9000'
     file_path_pattern = hdfs_pd + "/user/jennifer/truecall/TrueCall_VMB/UTC_date={}/"  
     df_trc_sampled = process_csv_files_for_date_range(d_range, file_path_pattern)
@@ -121,7 +120,7 @@ if __name__ == "__main__":
             .save(output_path)
         return
 
-    mail_sender.send(text = time.strftime("%Y-%m-%d %H:%M:%S"),subject="Start Running enb_100", send_from ="Truecall_enb@verizon.com" )
+    mail_sender.send(text = time.strftime("%Y-%m-%d %H:%M:%S"),subject="Start Running enb", send_from ="Truecall_enb@verizon.com" )
     try:
         process_enb_cover(spark, df_trc_sampled, mgrs_udf_100, 100, d_range)        
         mail_sender.send(text = time.strftime("%Y-%m-%d %H:%M:%S"),subject="Finish Running enb_100" , send_from ="Truecall_enb@verizon.com")
