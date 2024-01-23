@@ -35,6 +35,7 @@ def convert_to_mgrs(latitude, longitude, MGRSPrecision =3):
         return mgrs_value
     except:
         return None
+        
 def read_csv_file_by_date(date, file_path_pattern): 
 
     file_path = file_path_pattern.format(date) 
@@ -68,12 +69,13 @@ def convert_string_numerical(df, String_typeCols_List):
     return df
 
 if __name__ == "__main__":
-    # the only input is the date which is used to generate 'date_range'
+    desired_partition_number = 10000
     spark = SparkSession.builder.appName('Truecall_mgrs_ZheS')\
                                 .master("spark://njbbepapa1.nss.vzwnet.com:7077")\
                                 .config("spark.sql.adapative.enabled","true")\
+                                .config("spark.sql.shuffle.partitions", desired_partition_number)\
                                 .getOrCreate()
-    parser = argparse.ArgumentParser(description="Inputs for generating Post SNA Maintenance Script Trial")
+
     mail_sender = MailSender() 
     repartion_num = 1000
 
@@ -121,8 +123,8 @@ if __name__ == "__main__":
                                 count("*").alias("records_cnt")
                                 )\
                                 .dropDuplicates(subset=["gridid", "env_tag"])\
-                                .withColumn("start_week", lit( d_range[-1] ))\
-                                .withColumn("end_week", lit( d_range[0] ))    
+                                .withColumn("start_week", lit( d_range[0] ))\
+                                .withColumn("end_week", lit( d_range[-1] ))    
 
     try:
         mail_sender.send(text = time.strftime("%Y-%m-%d %H:%M:%S"),subject="Start Running process_mgrs_truecall" , send_from ="Truecall_feature@verizon.com" )
@@ -131,14 +133,7 @@ if __name__ == "__main__":
                         .write.format("parquet")\
                         .mode("overwrite")\
                         .save(output_path) 
-        """
-        df_mgrs_feature.repartition(repartion_num)\
-                        .write.format("csv")\
-                        .option("header", "true")\
-                        .mode("overwrite")\
-                        .option("compression", "gzip")\
-                        .save(output_path)
-        """
+
         mail_sender.send(text = time.strftime("%Y-%m-%d %H:%M:%S"),subject="Finish Running process_mgrs_truecall" , send_from ="Truecall_feature@verizon.com" )
 
     except Exception as e:
