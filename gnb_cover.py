@@ -95,9 +95,9 @@ if __name__ == "__main__":
     #-----------------------------------------------------------------------
     repartion_num = 1000
 
-    last_saturday = date.today() - timedelta(days=(date.today().weekday() + 7) % 7 + 2);last_friday = last_saturday + timedelta(days=6) 
-    #last_saturday = date.today() - timedelta(days= 7); last_friday = last_saturday + timedelta(days=6) 
-    d_range = [ (last_saturday + timedelta(days=x)).strftime('%Y%m%d') for x in range((last_friday - last_saturday).days + 1)]
+    first_day = date.today() - timedelta(days=(date.today().weekday() + 7) % 7 + 1);last_day = first_day + timedelta(days=6) 
+    #first_day = date.today() - timedelta(days= 7); last_day = first_day + timedelta(days=6) 
+    d_range = [ (first_day + timedelta(days=x)).strftime('%Y%m%d') for x in range((last_day - first_day).days + 1)] 
     
     file_path_pattern = hdfs_pd + "/user/jennifer/truecall/TrueCall_VMB/UTC_date={}/"  
     df_trc_sampled = process_csv_files_for_date_range(d_range, file_path_pattern)
