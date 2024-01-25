@@ -69,7 +69,8 @@ def convert_string_numerical(df, String_typeCols_List):
     return df
 
 if __name__ == "__main__":
-    desired_partition_number = 10000
+    desired_partition_number = 5000
+
     spark = SparkSession.builder.appName('Truecall_mgrs_ZheS')\
                                 .master("spark://njbbepapa1.nss.vzwnet.com:7077")\
                                 .config("spark.sql.adapative.enabled","true")\
